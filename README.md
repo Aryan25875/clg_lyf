@@ -172,8 +172,6 @@ GOOGLE_REFRESH_TOKEN=<your-google-refresh-token>
 GOOGLE_USER=<your-gmail-address>
 ```
 
-> [!CAUTION]
-> **Never commit your `.env` file.** It is already included in `.gitignore`. Use the placeholders above and fill in your own credentials.
 
 ---
 
