@@ -1,9 +1,8 @@
 const jwt = require('jsonwebtoken');
 const userModel = require('../models/user.model');
 const bcrypt = require('bcrypt');
-const {generateOtp, getOtpHtml} = require('../utils/utils');
 const otpModel = require('../models/otp.model');
-const sendEmail = require('../services/email.service');
+const sendOtp = require('../services/email.service');
 const {checkOtp} = require('../utils/checkOtp');
 
 
@@ -41,28 +40,25 @@ async function registerUser(req, res){
         
         const user = await userModel.create({username, email, password: hashedPassword});
         
-        const token = jwt.sign({id : user._id}, process.env.JWT_SECRET);
-        
-        res.cookie("token", token);
+        const accessToken = jwt.sign({id : user._id}, process.env.JWT_SECRET, {expiresIn: "15m"});
+        const refreshToken = jwt.sign({id : user._id}, process.env.JWT_SECRET, {expiresIn: "7d"});
 
-        const otp = generateOtp();
-        const html = getOtpHtml(otp);
-        const otpHash = await bcrypt.hash(otp, 10);
+        res.cookie("refreshToken", refreshToken,{
+            httpOnly: true,
+            secure: true,
+            sameSite: "strict",
+            maxAge: 7*24*60*60*1000
+        });
 
-        await otpModel.deleteMany({ email });
+        sendOtp(user);
 
-        await otpModel.create({
-            otpHash,
-            user: user._id,
-            email,
-            expiresAt: new Date(Date.now() + (5*1000*60))
-        })
-
-        await sendEmail(email, "OTP Verification", `Your OTP Code is ${otp}`, html);
-        
+       
         res.status(201).json({
-            msg : "User Created Successfully, Check for OTP",
-            user
+            msg : "User Created Successfully, Check for OTP",     
+            accessToken,       
+            username: user.username,
+            email: user.email,
+            verified: user.verified
         })
     }catch(err){
         console.log(err);
@@ -70,6 +66,50 @@ async function registerUser(req, res){
             msg : "Issue in registerUser",
         })
     }
+}
+
+async function refresh(req, res){
+    try{
+        const refreshToken = req.cookies?.refreshToken;
+        if (!refreshToken){
+            return res.status(401).json({
+                msg: "Refresh Token not found"
+            })
+        }
+
+        const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+        const user = await userModel.findById(decoded.id);
+        if (!user){
+            return res.status(404).json({
+                msg: "User not found"
+            })
+        }
+
+        const accessToken = jwt.sign({id: decoded.id}, process.env.JWT_SECRET,{
+            expiresIn: "15m"
+        })
+
+        const newRefreshToken = jwt.sign({id: decoded.id}, process.env.JWT_SECRET,{expiresIn: "7d"});
+        res.cookie("refreshToken", newRefreshToken,{
+            httpOnly: true,
+            secure: true,
+            sameSite: "strict", 
+            maxAge: 7*24*60*60*1000
+        });
+
+        return res.status(200).json({
+            msg: "Access Token generated successfully",
+            accessToken
+        })
+
+
+    }catch(err){
+        console.log(err);
+        return res.status(400).json({
+            msg: "Error in generating access token"
+        })
+    }
+
 }
 
 async function loginUser(req, res){
@@ -95,7 +135,7 @@ async function loginUser(req, res){
             })
         }
 
-        const result = await bcrypt.compare(password, user.password);
+        const result = bcrypt.compare(password, user.password);
 
         if (!result){
             return res.status(401).json({
@@ -103,37 +143,48 @@ async function loginUser(req, res){
             })
         }
 
-        
+        const accessToken = jwt.sign({id: user._id}, process.env.JWT_SECRET, {expiresIn: "15m"});
+        const refreshToken = jwt.sign({id: user._id}, process.env.JWT_SECRET, {expiresIn: "7d"});
 
-        const token = jwt.sign({id: user._id}, process.env.JWT_SECRET);
-        res.cookie("token", token);
+        res.cookie("refreshToken", refreshToken,{
+            httpOnly: true,
+            secure: true,
+            sameSite: "strict",
+            maxAge: 7*24*60*60*1000
+        });
 
-        return res.status(200).json({
-            msg : "User Logged In successfully",
-            user
+        res.status(200).json({
+            msg : "User logged in successfully",
+            accessToken,
+            username: user.username,
+            email: user.email,
+            verified: user.verified
         })
 
     }catch(err){
+        console.log(err);
         return res.status(400).json({
-            msg: "Issue in loginUser",
-            error: err
+            msg: "Issue in loginUser"
         })
     }
 }
 
 async function changeUsername(req, res){
     try{
-        const token = req.cookies?.token;
-
-        if (!token){
+        const {accessToken, newUsername} = req.body;
+        if (!newUsername){
             return res.status(400).json({
-                msg: "Token not found"
+                msg: "Username field can't be empty"
             })
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (!accessToken){
+            return res.status(400).json({
+                msg: "accessToken not found"
+            })
+        }
 
-        const {newUsername} = req.body;
+        const decoded = jwt.verify(accessToken, process.env.JWT_SECRET);
 
         const found = await userModel.findOne({username: newUsername});
 
@@ -150,22 +201,17 @@ async function changeUsername(req, res){
 
         res.status(200).json({
             msg: "Username Updated successfully",
-            updatedUser
+            username: updatedUser.username,
+            email: updatedUser.email,
+            verified: updatedUser.verified
+            
         });
     }catch(err){
         console.log(err);
         return res.status(400).json({
-            msg : "Authentication Issue",
+            msg : "Error in changeUsername",
         })
     }
-}
-
-async function logout(req, res){
-    res.clearCookie("token");
-
-    return res.status(200).json({
-        msg: "User Logged Out"
-    })
 }
 
 async function verifyEmail(req, res){
@@ -208,15 +254,17 @@ async function verifyEmail(req, res){
         user.verified = true;
         await user.save();
     
-    
         await otpModel.deleteOne({user: result.otpObj.user})
     
         return res.status(200).json({
             msg : "Email Verified Successfully",
-            user
+            username: user.username,
+            email: user.email,
+            verified: user.verified
         })
+
     }catch(err){
-        console.log("Verify Email Error : ", err);
+        console.log(err);
         return res.status(400).json({
             msg: "Error in Email verification"
         })
@@ -225,94 +273,134 @@ async function verifyEmail(req, res){
 }
 
 async function changePasswordByOldPassword(req, res){
-    const {email, password, newPassword} = req.body;
-
-    const user = await userModel.findOne({email});
-
-    if (!user){
-        return res.status(404).json({
-            msg: "User not found"
-        })
-    }
-
-    const result = await bcrypt.compare(password, user.password);
-
-    if (!result){
+    try{
+        const {email, password, newPassword} = req.body;
+    
+        const user = await userModel.findOne({email});
+    
+        if (!user){
+            return res.status(404).json({
+                msg: "User not found"
+            })
+        }
+    
+        const result = bcrypt.compare(password, user.password);
+    
+        if (!result){
+            return res.status(400).json({
+                msg: "Wrong Password"
+            })
+        }
+    
+        const hashedPassword = await bcrypt.hash(newPassword, 12);
+        user.password = hashedPassword;
+    
+        await user.save();
+    
+        res.status(200).json({
+            msg: "Password changed"
+        })    
+    }catch(err){
+        console.log(err);
         return res.status(400).json({
-            msg: "Wrong Password"
+            msg: "Error in change password by old password"
         })
     }
-
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
-    user.password = hashedPassword;
-
-    await user.save();
-
-    return res.status(200).json({
-        msg: "Password changed"
-    })    
 }
 
 async function sendOtpforPasswordChange(req, res){
-    const {email} = req.body;
+    try{
+        const {email} = req.body;
+    
+        const user = await userModel.findOne({email});
+    
+        if (!user){
+            return res.status(404).json({
+                msg: "Email Not found"
+            })
+        }
+    
+        sendOtp(user);
 
-    const user = await userModel.findOne({email});
-
-    if (!user){
-        return res.status(404).json({
-            msg: "Email Not found"
+        res.status(200).json({
+            msg: "OTP Sended",
+            email: otpObj.email,
+            userid: otpObj.user,
+        })
+    }catch(err){
+        console.log(err);
+        return res.status(400).json({
+            msg: "Error in sendOtpforPasswordChange"
         })
     }
-
-    const otp = generateOtp();
-    const hashedOtp = await bcrypt.hash(otp, 10);
-
-    const html = getOtpHtml(otp);
-
-    await otpModel.deleteMany({ email });
-
-
-    const otpObj = await otpModel.create({
-        email,
-        user: user._id,
-        otpHash: hashedOtp,
-        expiresAt: new Date(Date.now() + (5*1000*60)),
-    })
-
-    await sendEmail(email, "OTP Verification", `Your OTP Code is ${otp}`, html);
-
-    return res.status(200).json({
-        msg: "OTP Sended",
-        otpObj
-    })
 }
 
 async function changePasswordbyOtp(req, res){
-    const {otp, email, newPassword} = req.body;
-
-    const result = await checkOtp(otp, email);
-
-    if (!result.valid){
+    try{
+        const {otp, email, newPassword} = req.body;
+    
+        const result = await checkOtp(otp, email);
+    
+        if (!result.valid){
+            return res.status(400).json({
+                msg: result.msg
+            })
+        }
+    
+        const user = await userModel.findOne({email});
+        const hashedPassword = await bcrypt.hash(newPassword, 12);
+        
+        user.password = hashedPassword;
+    
+        await user.save();
+    
+        await otpModel.deleteOne({user: result.otpObj.user})
+    
+        res.status(200).json({
+            msg: "Password Changed Successfully"
+        })
+    }catch(err){
+        console.log(err);
         return res.status(400).json({
-            msg: result.msg
+            msg: "Error in changePasswordbyOtp"
         })
     }
-
-    const user = await userModel.findOne({email});
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
-    
-    user.password = hashedPassword;
-
-    await user.save();
-
-    await otpModel.deleteOne({user: result.otpObj.user})
-
-    res.status(200).json({
-        msg: "Password Changed Successfully"
-    })
 }
 
-module.exports = {registerUser, loginUser, changeUsername, logout, verifyEmail, changePasswordByOldPassword, sendOtpforPasswordChange, changePasswordbyOtp};
+async function resendOtp(req, res){
+    try{
+        const {email} = req.body;
+        if (!email){
+            return res.status(400).json({
+                msg: "Email not found"
+            })
+        }
+        const user = await userModel.findOne({email});
+        if (!user){
+            return res.status(400).json({
+                msg: "Invalid email"
+            })
+        }
+        
+        sendOtp(user);
+        
+
+        res.status(200).json({
+            msg: "OTP sended successfully"
+        })
+
+    }catch(err){
+        console.log(err);
+        return res.status(400).json({
+            msg: "Error in resendOtp"
+        })
+    }
+    
+}
+
+
+
+module.exports = {registerUser, loginUser, changeUsername, verifyEmail, changePasswordByOldPassword, sendOtpforPasswordChange, changePasswordbyOtp, refresh, resendOtp};
 
 
 

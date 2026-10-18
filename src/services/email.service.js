@@ -1,4 +1,7 @@
 const nodemailer = require('nodemailer');
+const otpModel = require('../models/otp.model');
+const {generateOtp, getOtpHtml} = require('../utils/utils');
+const bcrypt = require('bcrypt');
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -39,4 +42,21 @@ const sendEmail = async (to, subject, text, html) => {
   }
 };
 
-module.exports = sendEmail;
+async function sendOtp(user){
+ 	const otp = generateOtp();
+    const html = getOtpHtml(otp);
+	const otpHash = await bcrypt.hash(otp, 10);
+
+	await otpModel.deleteMany({ email:user.email });
+
+	await otpModel.create({
+		otpHash,
+		user: user._id,
+		email: user.email,
+		expiresAt: new Date(Date.now() + (5*1000*60))
+	})
+
+	await sendEmail(user.email, "OTP Verification", `Your OTP Code is ${otp}`, html);
+}
+
+module.exports = sendOtp;

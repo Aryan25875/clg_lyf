@@ -33,8 +33,6 @@ router.post('/login', (req, res, next)=>{
 
 router.post('/change_username', authController.changeUsername);
 
-router.post('/logout', authController.logout);
-
 router.post('/verify_email',(req, res, next)=>{
     const result = authValidator.onlyEmail.safeParse(req.body);
 
@@ -86,5 +84,9 @@ router.post('/change_pass_otp', (req, res, next)=>{
 
     next();
 } ,authController.changePasswordbyOtp);
+
+router.get('/refresh', authController.refresh);
+
+router.get('/resend-otp', authController.resendOtp);
 
 module.exports = router;
