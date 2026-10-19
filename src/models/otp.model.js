@@ -25,6 +25,11 @@ const otpSchema = new mongoose.Schema({
     attempts:{
         type: Number,
         default: 0
+    },
+    
+    lastSentAt:{
+        type: Date,
+        default: Date.now
     }
 },{
     timestamps:true 

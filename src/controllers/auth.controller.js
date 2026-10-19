@@ -323,7 +323,7 @@ async function sendOtpforPasswordChange(req, res){
         sendOtp(user);
 
         res.status(200).json({
-            msg: "OTP Sended",
+            msg: "OTP sent",
             email: otpObj.email,
             userid: otpObj.user,
         })
@@ -381,12 +381,37 @@ async function resendOtp(req, res){
                 msg: "Invalid email"
             })
         }
+
+        const otpObj = await otpModel.findOne({email});
+
+        if (!otpObj){
+            return res.status(400).json({
+                msg: "Please Request an OTP first"
+            })
+        }
+
+        const cooldown = 2*60*1000;
+        const elapsed = Date.now() - otpObj.lastSentAt.getTime();
+
+        if (elapsed < cooldown){
+            const remainingSeconds = Math.ceil(
+                (cooldown - elapsed) / 1000
+            );
+
+            return res.status(429).json({
+                msg: `Please Wait ${remainingSeconds} seconds before resending OTP`,
+                retryAfterSeconds: remainingSeconds
+            });
+        }
+
         
-        sendOtp(user);
+
+        await sendOtp(user);
         
 
         res.status(200).json({
-            msg: "OTP sended successfully"
+            msg: "OTP sent successfully",
+            retryAfterSeconds: 120
         })
 
     }catch(err){

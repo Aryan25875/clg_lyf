@@ -8,13 +8,11 @@ async function checkOtp(otp, email){
     }
 
     if (otpObj.expiresAt <= new Date()){
-        await otpModel.deleteOne({user: otpObj.user})
-        return { valid: false, msg: "OTP Expired" };
+        return { valid: false, msg: "OTP Expired, Please try sending OTP again" };
     }
 
     if (otpObj.attempts >= 5){
-        await otpModel.deleteOne({user: otpObj.user});
-        return {valid: false, msg: "OTP Expired, Please try sending OTP again"};
+        return {valid: false, msg: "Too many attempts, Please try sending OTP again"};
     }
 
     const check = await bcrypt.compare(otp.toString(), otpObj.otpHash.toString());
