@@ -511,8 +511,54 @@ async function logout(req, res){
 
 }
 
+async function logout_from_all_devices(req, res){
+    try{
+        const refreshToken = req.cookies?.refreshToken;
+        if (!refreshToken){
+            return res.status(400).json({
+                msg: "Refresh Token not found"
+            })
+        }
+    
+        const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+        if (!decoded){
+            return res.status(400).json({
+                msg: "Refresh Token decode failed"
+            })
+        }
+        const user = await userModel.findById(decoded.id);
+        if (!user){
+            return res.status(400).json({
+                msg: "User not found"
+            })
+        }
 
-module.exports = {registerUser, loginUser, changeUsername, verifyEmail, changePasswordByOldPassword, sendOtpforPasswordChange, changePasswordbyOtp, refresh, resendOtp, logout};
+        const result = await sessionModel.updateMany({
+            user: user._id,
+            revoked: false
+        },{
+            $set: {revoked: true}
+        })
+
+        if (result.acknowledged){
+            console.log(`${result.modifiedCount} sessions revoked`);
+        }
+
+        res.status(200).json({
+            msg: "Logged out from all devices successfuly"
+        })
+
+    }catch(err){
+        console.log(err);
+        return res.status(400).json({
+            msg: "logout_from_all_devices error"
+        })
+    }    
+
+}
+
+
+module.exports = {registerUser, loginUser, changeUsername, verifyEmail, changePasswordByOldPassword, sendOtpforPasswordChange, changePasswordbyOtp, refresh, resendOtp, logout, logout_from_all_devices};
 
 
 

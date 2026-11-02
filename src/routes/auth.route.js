@@ -91,5 +91,7 @@ router.get('/resend-otp', authController.resendOtp);
 
 router.get('/logout', authController.logout);
 
+router.get('/logout_from_all', authController.logout_from_all_devices);
+
 
 module.exports = router;
