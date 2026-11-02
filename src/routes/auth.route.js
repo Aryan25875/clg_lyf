@@ -89,4 +89,7 @@ router.get('/refresh', authController.refresh);
 
 router.get('/resend-otp', authController.resendOtp);
 
+router.get('/logout', authController.logout);
+
+
 module.exports = router;

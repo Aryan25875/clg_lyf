@@ -4,6 +4,7 @@ const bcrypt = require('bcrypt');
 const otpModel = require('../models/otp.model');
 const sendOtp = require('../services/email.service');
 const {checkOtp} = require('../utils/checkOtp');
+const sessionModel = require('../models/session.model');
 
 
 function collegeEmailValidator(email){
@@ -35,13 +36,23 @@ async function registerUser(req, res){
                 msg : "Username Alredy in used"
             })
         }
-        
         const hashedPassword = await bcrypt.hash(password, 12);
         
         const user = await userModel.create({username, email, password: hashedPassword});
         
-        const accessToken = jwt.sign({id : user._id}, process.env.JWT_SECRET, {expiresIn: "15m"});
         const refreshToken = jwt.sign({id : user._id}, process.env.JWT_SECRET, {expiresIn: "7d"});
+        
+        const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
+        const session = await sessionModel.create({
+            user: user._id,
+            refreshTokenHash,
+            ip: req.ip,
+            userAgent: req.headers["user-agent"]
+
+        })
+        
+        const accessToken = jwt.sign({id : user._id, sessionId:session._id}, process.env.JWT_SECRET, {expiresIn: "15m"});
+
 
         res.cookie("refreshToken", refreshToken,{
             httpOnly: true,
@@ -90,6 +101,26 @@ async function refresh(req, res){
         })
 
         const newRefreshToken = jwt.sign({id: decoded.id}, process.env.JWT_SECRET,{expiresIn: "7d"});
+        const refreshTokenHash = await bcrypt.hash(newRefreshToken, 12);
+
+        const user_sessions = await sessionModel.find({user:user._id, revoked:false});
+        let session = null;
+        for (let ele of user_sessions){
+            if (bcrypt.compare(refreshToken, ele.refreshTokenHash)){
+                session = ele;
+                break;
+            }
+        }
+
+        if (!session){
+            return res.status(404).json({
+                msg: "Session not found"
+            })
+        }
+
+        session.refreshTokenHash = refreshTokenHash;
+        await session.save();
+
         res.cookie("refreshToken", newRefreshToken,{
             httpOnly: true,
             secure: true,
@@ -145,6 +176,14 @@ async function loginUser(req, res){
 
         const accessToken = jwt.sign({id: user._id}, process.env.JWT_SECRET, {expiresIn: "15m"});
         const refreshToken = jwt.sign({id: user._id}, process.env.JWT_SECRET, {expiresIn: "7d"});
+        const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
+
+        const session = await sessionModel.create({
+            user:user._id,
+            refreshTokenHash,
+            ip: req.ip,
+            userAgent: req.headers["user-agent"]
+        })
 
         res.cookie("refreshToken", refreshToken,{
             httpOnly: true,
@@ -424,8 +463,56 @@ async function resendOtp(req, res){
 }
 
 
+async function logout(req, res){
+    try {
+        const refreshToken = req.cookies?.refreshToken;
+        if (!refreshToken){
+            return res.status(400).json({
+                msg: "Refresh token not found"
+            })
+        }
+    
+        const sessions = await sessionModel.find({
+            revoked: false
+        })
+    
+        let validSession = null;
+    
+        for (const ele of sessions){
+            const isMatch = await bcrypt.compare(refreshToken, ele.refreshTokenHash);
+    
+            if (isMatch){
+                validSession = ele;
+                break;
+            }
+        }
+    
+        if (!validSession){
+            return res.status(401).json({
+                msg: "Invalid refreshToken"
+            })
+        }
+    
+        validSession.revoked = true;
+        await validSession.save();
+    
+        res.clearCookie("refreshToken")
+    
+        return res.status(200).json({
+            msg: "Logged out successfully"
+        })
 
-module.exports = {registerUser, loginUser, changeUsername, verifyEmail, changePasswordByOldPassword, sendOtpforPasswordChange, changePasswordbyOtp, refresh, resendOtp};
+    } catch (error) {
+        console.log(error);
+        return res.status(400).json({
+            msg: "Error in logout"
+        })
+    }
+
+}
+
+
+module.exports = {registerUser, loginUser, changeUsername, verifyEmail, changePasswordByOldPassword, sendOtpforPasswordChange, changePasswordbyOtp, refresh, resendOtp, logout};
 
 
 
