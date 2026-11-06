@@ -1,60 +1,39 @@
 const jwt = require('jsonwebtoken');
 const userModel = require('../models/user.model');
-const sessionModel = require('../models/session.model');
-const bcrypt = require('bcrypt');
 
-async function authUser(req, res, next){
-    try{
-        const refreshToken = req.cookies?.refreshToken;
+async function authUser(req, res, next) {
+    try {
+        const {accessToken} = req.body;
 
-        if (!refreshToken){
-            return res.status(400).json({
-                msg : "refresh token required"
-            })
-        }
+        const decoded = jwt.verify(
+            accessToken,
+            process.env.JWT_SECRET
+        );
 
-        
-        const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
         const user = await userModel.findById(decoded.id);
-        if (!user){
-            return res.status(400).json({
-                msg: "User Not found"
-            })
-        }
-        
-        const sessions = await sessionModel.find({user:user._id, revoked: false});
-        let session = null;
-        for (let ele of sessions){
-            if (bcrypt.compare(refreshToken, ele.refreshTokenHash)){
-                session = ele;
-                break;
-            }
+
+        if (!user) {
+            return res.status(401).json({
+                msg: "User not found"
+            });
         }
 
-        if (!session){
-            return res.status(400).json({
-                msg: "session not found"
-            })
+        if (!user.verified) {
+            return res.status(403).json({
+                msg: "User is not verified"
+            });
         }
 
-        if (!user.verified){
-            return res.status(400).json({
-                msg: "User is not Verified"
-            })
-        }
-
-        req.user = decoded;
+        req.user = user;
 
         next();
 
-    }catch(err){
+    } catch (err) {
         console.log(err);
-        return res.status(400).json({
-            msg : "Auth failed"
-        })
+        return res.status(401).json({
+            msg: "Authentication failed in authUser Middleware"
+        });
     }
 }
 
-
-
-module.exports = {authUser};
+module.exports = { authUser };

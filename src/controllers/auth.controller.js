@@ -51,7 +51,7 @@ async function registerUser(req, res){
 
         })
         
-        const accessToken = jwt.sign({id : user._id, sessionId:session._id}, process.env.JWT_SECRET, {expiresIn: "15m"});
+        const accessToken = jwt.sign({id : user._id, sessionId:session._id}, process.env.JWT_SECRET, {expiresIn: "7d"});
 
 
         res.cookie("refreshToken", refreshToken,{
@@ -61,7 +61,7 @@ async function registerUser(req, res){
             maxAge: 7*24*60*60*1000
         });
 
-        sendOtp(user);
+        await sendOtp(user);
 
        
         res.status(201).json({
@@ -97,7 +97,7 @@ async function refresh(req, res){
         }
 
         const accessToken = jwt.sign({id: decoded.id}, process.env.JWT_SECRET,{
-            expiresIn: "15m"
+            expiresIn: "7d"
         })
 
         const newRefreshToken = jwt.sign({id: decoded.id}, process.env.JWT_SECRET,{expiresIn: "7d"});

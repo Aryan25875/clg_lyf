@@ -21,6 +21,11 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+
+    connections:[{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "user"
+    }],
 })
 
 const userModel = mongoose.model("user", userSchema);
