@@ -5,7 +5,7 @@ const authMiddleware = require('../middlewares/auth.middleware');
 
 router.post('/sendRequest', authMiddleware.authUser, conversationController.sendRequest);
 
-
+router.get('/my-requests', authMiddleware.authUser, conversationController.seeAllPendingReqs);
 
 
 

@@ -7,20 +7,7 @@ const jwt = require('jsonwebtoken');
 
 async function sendRequest(req, res){
     try{
-        const {accessToken, receiverUsername, requestType, note} = req.body;
-        if (!accessToken){
-            return res.status(400).json({
-                msg: "Access Token not found"
-            })
-        }
-
-        const decoded = jwt.verify(accessToken, process.env.JWT_SECRET);
-        const user = await userModel.findById(decoded.id);
-        if (!user){
-            return res.status(400).json({
-                msg: "User not found"
-            })
-        }
+        const {receiverUsername, requestType, note} = req.body;
 
         if (!receiverUsername || (requestType !== "friend" && requestType !== "addInGroup") ){
             return res.status(400).json({
@@ -29,16 +16,23 @@ async function sendRequest(req, res){
         }
 
         const requestedUser = await userModel.findOne({username: receiverUsername});
-        if (!requestedUser){
+        if (!requestedUser && !requestedUser.verified){
             return res.status(404).json({
                 msg: "user not found"
             })
         }
+
+        if (requestedUser === req.user){
+            return res.status(400).json({
+                msg: "Can't send friend request to yourself"
+            })
+        }
+
         console.log(requestedUser);
 
         const request = await requestModel.create({
             requestType,
-            sender: user._id,
+            sender: req.user._id,
             requestFor: requestedUser._id,
             note: note,
         })
@@ -56,6 +50,23 @@ async function sendRequest(req, res){
     }
 }
 
+async function seeAllPendingReqs(req, res){
+    try{
+        const requests = await requestModel.findOne({
+            requestFor: req.user._id
+        });
 
+        return res.status(200).json({
+            msg: "All requests fetched successfully",
+            requests
+        })
 
-module.exports = {sendRequest}
+    }catch(err){
+        console.log(err);
+        return res.status(400).json({
+            msg: "Error in seeAllPendingReqs function"
+        })
+    }
+}
+
+module.exports = {sendRequest, seeAllPendingReqs}

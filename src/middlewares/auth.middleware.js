@@ -18,6 +18,11 @@ async function authUser(req, res, next) {
             });
         }
 
+        if (user.isAdmin){
+            req.user = user;
+            next();
+        }
+
         if (!user.verified) {
             return res.status(403).json({
                 msg: "User is not verified"

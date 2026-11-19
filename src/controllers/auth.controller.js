@@ -16,7 +16,7 @@ function collegeEmailValidator(email){
 
 async function registerUser(req, res){
     try{
-        const {email, password, username} = req.body;
+        const {email, password, username, isAdmin} = req.body;
 
         if (!collegeEmailValidator(email)){
             return res.status(403).json({
@@ -38,7 +38,7 @@ async function registerUser(req, res){
         }
         const hashedPassword = await bcrypt.hash(password, 12);
         
-        const user = await userModel.create({username, email, password: hashedPassword});
+        const user = await userModel.create({username, email, password: hashedPassword, isAdmin});
         
         const refreshToken = jwt.sign({id : user._id}, process.env.JWT_SECRET, {expiresIn: "7d"});
         
